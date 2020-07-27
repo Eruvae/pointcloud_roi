@@ -1,0 +1,12 @@
+<library path="lib/libpointcloud_roi">
+  <class name="pointcloud_roi/FilterRedClusters" type="pointcloud_roi::FilterRedClustersNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+    Detect red region of interest in pointcloud.
+    </description>
+  </class>
+  <class name="pointcloud_roi/FilterDetectedRoi" type="pointcloud_roi::FilterDetectedRoiNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+    Detect ROI from neural network detection in pointcloud.
+    </description>
+  </class>
+</library>
