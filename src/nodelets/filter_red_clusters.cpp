@@ -15,13 +15,15 @@ namespace pointcloud_roi
 
 void FilterRedClustersNodelet::onInit()
 {
-  target_frame = getNodeHandle().param<std::string>("map_frame", "map");
+  ros::NodeHandle &nhp = getPrivateNodeHandle();
+
+  target_frame = nhp.param<std::string>("map_frame", "world");
   tf_buffer.reset(new tf2_ros::Buffer(ros::Duration(tf2::BufferCore::DEFAULT_CACHE_TIME)));
-  tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, getPrivateNodeHandle()));
-  pc_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(getPrivateNodeHandle(), "input", 1));
-  transform_filter.reset(new tf2_ros::MessageFilter<sensor_msgs::PointCloud2>(*pc_sub, *tf_buffer, target_frame, 1000, getPrivateNodeHandle()));
+  tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, nhp));
+  pc_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(nhp, "input", 1));
+  transform_filter.reset(new tf2_ros::MessageFilter<sensor_msgs::PointCloud2>(*pc_sub, *tf_buffer, target_frame, 1000, nhp));
   transform_filter->registerCallback(&FilterRedClustersNodelet::pointcloudCallback, this);
-  pc_roi_pub = getPrivateNodeHandle().advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
+  pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
 }
 
 pcl::IndicesConstPtr FilterRedClustersNodelet::filterRed(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input, pcl::PointCloud<pcl::PointXYZRGB>::Ptr output)

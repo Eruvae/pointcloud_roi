@@ -16,28 +16,76 @@ namespace pointcloud_roi
 
 void FilterDetectedRoiNodelet::onInit()
 {
-  use_exact_sync = getPrivateNodeHandle().param<bool>("use_exact_sync", false);
-  target_frame = getNodeHandle().param<std::string>("map_frame", "map");
+  processing_thread = std::thread(&FilterDetectedRoiNodelet::processingThread, this);
+
+  ros::NodeHandle &nhp = getPrivateNodeHandle();
+
+  use_exact_sync = nhp.param<bool>("use_exact_sync", false);
+  publish_colored_cloud = nhp.param<bool>("publish_colored_cloud", false);
+  target_frame = nhp.param<std::string>("map_frame", "world");
   tf_buffer.reset(new tf2_ros::Buffer(ros::Duration(tf2::BufferCore::DEFAULT_CACHE_TIME)));
-  tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, getPrivateNodeHandle()));
-  pc_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(getPrivateNodeHandle(), "pc", 1));
-  transform_filter.reset(new tf2_ros::MessageFilter<sensor_msgs::PointCloud2>(*pc_sub, *tf_buffer, target_frame, 1000, getPrivateNodeHandle()));
-  det_sub.reset(new message_filters::Subscriber<yolact_ros_msgs::Detections>(getPrivateNodeHandle(), "dets", 1));
+  tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, nhp));
+  pc_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(nhp, "pc", 1000));
+  transform_filter.reset(new tf2_ros::MessageFilter<sensor_msgs::PointCloud2>(*pc_sub, *tf_buffer, target_frame, 1000, nhp));
+  det_sub.reset(new message_filters::Subscriber<yolact_ros_msgs::Detections>(nhp, "dets", 1000));
   if (use_exact_sync)
   {
     exact_sync.reset(new message_filters::Synchronizer<DetsExactSyncPolicy>(DetsExactSyncPolicy(100), *transform_filter, *det_sub));
-    exact_sync->registerCallback(&FilterDetectedRoiNodelet::detectionCallback<pcl::PointXYZ>, this);
+    exact_sync->registerCallback(&FilterDetectedRoiNodelet::detectionCallback, this);
   }
   else
   {
     approx_sync.reset(new message_filters::Synchronizer<DetsApproxSyncPolicy>(DetsApproxSyncPolicy(100), *transform_filter, *det_sub));
-    approx_sync->registerCallback(&FilterDetectedRoiNodelet::detectionCallback<pcl::PointXYZ>, this);
+    approx_sync->registerCallback(&FilterDetectedRoiNodelet::detectionCallback, this);
   }
-  pc_roi_pub = getPrivateNodeHandle().advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
+  //message_filters::Cache<DetsExactSyncPolicy::Messages> c(exact_sync->, 1, true);
+  pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
+}
+
+FilterDetectedRoiNodelet::~FilterDetectedRoiNodelet()
+{
+  is_running = false;
+  cv.notify_one();
+  try
+  {
+    processing_thread.join();
+  }
+  catch (std::system_error&) {}
+}
+
+void FilterDetectedRoiNodelet::processingThread()
+{
+  while (is_running && ros::ok())
+  {
+    std::unique_lock<std::mutex> lk(m);
+    cv.wait(lk, [this]{return this->synced_pc != nullptr || !this->is_running;});
+    if (!this->is_running)
+      return;
+
+    sensor_msgs::PointCloud2Ptr pc = synced_pc;
+    yolact_ros_msgs::DetectionsPtr dets = synced_dets;
+    synced_pc = nullptr;
+    synced_dets = nullptr;
+    lk.unlock();
+    if (publish_colored_cloud)
+      processDetections<pcl::PointXYZRGB>(pc, dets);
+    else
+      processDetections<pcl::PointXYZ>(pc, dets);
+  }
+}
+
+void FilterDetectedRoiNodelet::detectionCallback(const sensor_msgs::PointCloud2Ptr &pc, const yolact_ros_msgs::DetectionsPtr &dets)
+{
+  {
+    std::lock_guard<std::mutex> lk(m);
+    synced_pc = pc;
+    synced_dets = dets;
+  }
+  cv.notify_one();
 }
 
 template <typename PointT>
-void FilterDetectedRoiNodelet::detectionCallback(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets)
+void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets)
 {
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud(new pcl::PointCloud<PointT>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
