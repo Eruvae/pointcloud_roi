@@ -14,7 +14,6 @@ set (CATKIN_DEPENDENCIES
     sensor_msgs
     geometry_msgs
     message_filters
-    instance_segmentation_msgs
     yolact_ros_msgs
     visualization_msgs
     pointcloud_roi_msgs

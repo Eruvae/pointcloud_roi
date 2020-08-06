@@ -62,7 +62,6 @@
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>message_filters</depend>
-  <depend>instance_segmentation_msgs</depend>
   <depend>yolact_ros_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>pointcloud_roi_msgs</depend>
