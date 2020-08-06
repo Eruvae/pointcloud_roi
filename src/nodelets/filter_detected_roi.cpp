@@ -20,6 +20,9 @@ void FilterDetectedRoiNodelet::onInit()
 
   ros::NodeHandle &nhp = getPrivateNodeHandle();
 
+  dynrec_server.reset(new dynamic_reconfigure::Server<pointcloud_roi::FilterDetectedRoiConfig>(nhp));
+  dynrec_server->setCallback(boost::bind(&FilterDetectedRoiNodelet::reconfigureCallback, this, _1, _2));
+
   use_exact_sync = nhp.param<bool>("use_exact_sync", false);
   publish_colored_cloud = nhp.param<bool>("publish_colored_cloud", false);
   target_frame = nhp.param<std::string>("map_frame", "world");
@@ -100,86 +103,116 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud_ds(new pcl::PointCloud<PointT>);
   typename pcl::VoxelGrid<PointT> vg;
   vg.setInputCloud (pcl_cloud);
-  vg.setMinimumPointsNumberPerVoxel(100);
-  vg.setLeafSize (0.01f, 0.01f, 0.01f);
+  vg.setMinimumPointsNumberPerVoxel(config.min_points_per_voxel);
+  double resolution = config.voxel_grid_resolution;
+  vg.setLeafSize (resolution, resolution, resolution);
   vg.setSaveLeafLayout(true);
   vg.filter (*pcl_cloud_ds);
-  ROS_INFO_STREAM("PointCloud before: " << pcl_cloud->points.size()  << ", " << pcl_cloud_ds->points.size());
+  //ROS_INFO_STREAM("PointCloud before: " << pcl_cloud->points.size()  << ", " << pcl_cloud_ds->points.size());
+
+  if (pcl_cloud_ds->empty())
+    return;
 
   // Creating the KdTree object for the search method of the extraction
   typename pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
   tree->setInputCloud (pcl_cloud_ds);
 
-  std::vector<pcl::PointIndicesPtr> allIndices;
-
-  for (const yolact_ros_msgs::Detection &det : dets->detections)
+  pcl::PointIndicesPtr roiRegion;
+  if (config.merge_detections)
   {
-    ROS_INFO_STREAM("Detection is processed");
     std::set<int> inds_set;
-    for (int y = det.box.y1; y < det.box.y2; y++)
+    for (const yolact_ros_msgs::Detection &det : dets->detections)
     {
-      for (int x = det.box.x1; x < det.box.x2; x++)
+      ROS_INFO_STREAM("Detection is processed");
+      std::set<int> inds_set;
+      for (int y = det.box.y1; y < det.box.y2; y++)
       {
-        if (yolact_ros_msgs::test(det.mask, x - det.box.x1, y - det.box.y1))
+        for (int x = det.box.x1; x < det.box.x2; x++)
         {
-          const PointT &point = pcl_cloud->at(x, y);
-          //int i = vg.getCentroidIndex(point);
-          Eigen::Vector3i gc = vg.getGridCoordinates(point.x, point.y, point.z);
-          int i = vg.getCentroidIndexAt(gc);
-          if (i >= 0)
+          if (yolact_ros_msgs::test(det.mask, x - det.box.x1, y - det.box.y1))
           {
-            inds_set.insert(i);
+            const PointT &point = pcl_cloud->at(x, y);
+            Eigen::Vector3i gc = vg.getGridCoordinates(point.x, point.y, point.z);
+            int i = vg.getCentroidIndexAt(gc);
+            if (i >= 0)
+            {
+              inds_set.insert(i);
+            }
           }
-          //inds_set.insert((y - det.box.y1) * pcl_cloud->width + (x - det.box.x1));
         }
       }
     }
-    pcl::PointIndices::Ptr inds(new pcl::PointIndices);
-    inds->indices.assign(inds_set.begin(), inds_set.end());
-    allIndices.push_back(inds);
+    roiRegion.reset(new pcl::PointIndices);
+    roiRegion->indices.reserve(inds_set.size());
+    roiRegion->indices.assign(inds_set.begin(), inds_set.end());
+  }
+  else
+  {
+    std::vector<pcl::PointIndicesPtr> allIndices;
 
-    /*std::vector<pcl::PointIndices> cluster_indices;
-    typename pcl::EuclideanClusterExtraction<PointT> ec;
-    ec.setClusterTolerance (0.02); // 2cm
-    ec.setMinClusterSize (30);
-    ec.setMaxClusterSize (25000);
-    ec.setSearchMethod (tree);
-    ec.setInputCloud (pcl_cloud_ds);
-    ec.setIndices(inds);
-    ec.extract (cluster_indices);
-
-    if (cluster_indices.empty())
+    for (const yolact_ros_msgs::Detection &det : dets->detections)
     {
-      ROS_INFO("Object not found");
-      continue;
+      //ROS_INFO_STREAM("Detection is processed");
+      std::set<int> inds_set;
+      for (int y = det.box.y1; y < det.box.y2; y++)
+      {
+        for (int x = det.box.x1; x < det.box.x2; x++)
+        {
+          if (yolact_ros_msgs::test(det.mask, x - det.box.x1, y - det.box.y1))
+          {
+            const PointT &point = pcl_cloud->at(x, y);
+            //int i = vg.getCentroidIndex(point);
+            Eigen::Vector3i gc = vg.getGridCoordinates(point.x, point.y, point.z);
+            int i = vg.getCentroidIndexAt(gc);
+            if (i >= 0)
+            {
+              inds_set.insert(i);
+            }
+            //inds_set.insert((y - det.box.y1) * pcl_cloud->width + (x - det.box.x1));
+          }
+        }
+      }
+      pcl::PointIndices::Ptr inds(new pcl::PointIndices);
+      inds->indices.assign(inds_set.begin(), inds_set.end());
+      allIndices.push_back(inds);
+
+      /*std::vector<pcl::PointIndices> cluster_indices;
+      typename pcl::EuclideanClusterExtraction<PointT> ec;
+      ec.setClusterTolerance (0.02); // 2cm
+      ec.setMinClusterSize (30);
+      ec.setMaxClusterSize (25000);
+      ec.setSearchMethod (tree);
+      ec.setInputCloud (pcl_cloud_ds);
+      ec.setIndices(inds);
+      ec.extract (cluster_indices);
+
+      if (cluster_indices.empty())
+      {
+        ROS_INFO("Object not found");
+        continue;
+      }
+
+      pcl::PointIndicesPtr clusterPtr(new pcl::PointIndices);
+      *clusterPtr = cluster_indices[0];
+      allIndices.push_back(clusterPtr);*/
+
+      //ROS_INFO_STREAM("Is sorted: " << std::is_sorted(clusterPtr->indices.begin(), clusterPtr->indices.end()));
     }
 
-    pcl::PointIndicesPtr clusterPtr(new pcl::PointIndices);
-    *clusterPtr = cluster_indices[0];
-    allIndices.push_back(clusterPtr);*/
-
-    //ROS_INFO_STREAM("Is sorted: " << std::is_sorted(clusterPtr->indices.begin(), clusterPtr->indices.end()));
-  }
-
-  for (const pcl::PointIndicesPtr &iptr : allIndices)
-  {
-    ROS_INFO_STREAM("Region points: " << iptr->indices.size());
-  }
-
-  pcl::PointIndicesPtr roiRegion;
-  if (allIndices.size() == 0)
-  {
-    ROS_INFO("No ROI found");
-    return;
-  }
-  roiRegion = allIndices[0];
-  for (size_t i = 1; i < allIndices.size(); i++)
-  {
-    pcl::PointIndicesPtr tmp(new pcl::PointIndices);
-    tmp->indices.resize(roiRegion->indices.size() + allIndices[i]->indices.size());
-    auto it = std::set_union(roiRegion->indices.begin(), roiRegion->indices.end(), allIndices[i]->indices.begin(), allIndices[i]->indices.end(), tmp->indices.begin());
-    tmp->indices.resize(it - tmp->indices.begin());
-    roiRegion = tmp;
+    if (allIndices.size() == 0)
+    {
+      ROS_INFO("No ROI found");
+      return;
+    }
+    roiRegion = allIndices[0];
+    for (size_t i = 1; i < allIndices.size(); i++)
+    {
+      pcl::PointIndicesPtr tmp(new pcl::PointIndices);
+      tmp->indices.resize(roiRegion->indices.size() + allIndices[i]->indices.size());
+      auto it = std::set_union(roiRegion->indices.begin(), roiRegion->indices.end(), allIndices[i]->indices.begin(), allIndices[i]->indices.end(), tmp->indices.begin());
+      tmp->indices.resize(it - tmp->indices.begin());
+      roiRegion = tmp;
+    }
   }
 
   geometry_msgs::TransformStamped pcFrameTf;
@@ -192,7 +225,7 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
     ROS_ERROR_STREAM("Couldn't find transform to map frame: " << e.what());
     return;
   }
-  ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
+  //ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
   auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
 
   pcl::transformPointCloud(*pcl_cloud_ds, *pcl_cloud_ds, tfEigen);
@@ -202,8 +235,13 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
   res.cloud.header.frame_id = target_frame;
   res.cloud.header.stamp = pc->header.stamp;
   res.transform = pcFrameTf.transform;
-  res.roi_indices.assign(roiRegion->indices.begin(), roiRegion->indices.end());
+  res.roi_indices = std::move(roiRegion->indices);
   pc_roi_pub.publish(res);
+}
+
+void FilterDetectedRoiNodelet::reconfigureCallback(pointcloud_roi::FilterDetectedRoiConfig &config, uint32_t level)
+{
+  this->config = config;
 }
 
 } // namespace pointcloud_roi

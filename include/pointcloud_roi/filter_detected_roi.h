@@ -20,6 +20,8 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <dynamic_reconfigure/server.h>
+#include <pointcloud_roi_msgs/FilterDetectedRoiConfig.h>
 
 namespace pointcloud_roi
 {
@@ -46,6 +48,9 @@ private:
   std::unique_ptr<message_filters::Synchronizer<DetsExactSyncPolicy>> exact_sync;
   //std::unique_ptr<message_filters::Cache<sensor_msgs::PointCloud2, yolact_ros_msgs::Detections> sync_cache;
 
+  pointcloud_roi::FilterDetectedRoiConfig config;
+  std::unique_ptr<dynamic_reconfigure::Server<pointcloud_roi::FilterDetectedRoiConfig>> dynrec_server;
+
   ros::Publisher pc_roi_pub;
 
   sensor_msgs::PointCloud2Ptr synced_pc;
@@ -63,6 +68,8 @@ private:
 
   template <typename PointT>
   void processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets);
+
+  void reconfigureCallback(pointcloud_roi::FilterDetectedRoiConfig &config, uint32_t level);
 };
 
 } // namespace pointcloud_roi
