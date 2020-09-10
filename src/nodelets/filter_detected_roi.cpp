@@ -93,6 +93,21 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud(new pcl::PointCloud<PointT>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
 
+  geometry_msgs::TransformStamped pcFrameTf;
+  try
+  {
+    pcFrameTf = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, pc->header.stamp);
+  }
+  catch (const tf2::TransformException &e)
+  {
+    ROS_ERROR_STREAM("Couldn't find transform to map frame: " << e.what());
+    return;
+  }
+  //ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
+  auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
+
+  pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen);
+
   /*ros::Time sor_start = ros::Time::now();
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud_sor(new pcl::PointCloud<PointT>);
   typename pcl::StatisticalOutlierRemoval<PointT> sor;
@@ -107,6 +122,8 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
   double resolution = config.voxel_grid_resolution;
   vg.setLeafSize (resolution, resolution, resolution);
   vg.setSaveLeafLayout(true);
+  vg.setFilterFieldName("y");
+  vg.setFilterLimits(0, config.max_dist);
   vg.filter (*pcl_cloud_ds);
   //ROS_INFO_STREAM("PointCloud before: " << pcl_cloud->points.size()  << ", " << pcl_cloud_ds->points.size());
 
@@ -124,7 +141,6 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
     for (const yolact_ros_msgs::Detection &det : dets->detections)
     {
       ROS_INFO_STREAM("Detection is processed");
-      std::set<int> inds_set;
       for (int y = det.box.y1; y < det.box.y2; y++)
       {
         for (int x = det.box.x1; x < det.box.x2; x++)
@@ -214,21 +230,6 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
       roiRegion = tmp;
     }
   }
-
-  geometry_msgs::TransformStamped pcFrameTf;
-  try
-  {
-    pcFrameTf = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, pc->header.stamp);
-  }
-  catch (const tf2::TransformException &e)
-  {
-    ROS_ERROR_STREAM("Couldn't find transform to map frame: " << e.what());
-    return;
-  }
-  //ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
-  auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
-
-  pcl::transformPointCloud(*pcl_cloud_ds, *pcl_cloud_ds, tfEigen);
 
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
