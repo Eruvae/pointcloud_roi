@@ -117,7 +117,7 @@ catkin_package(
    INCLUDE_DIRS include
    LIBRARIES ${PROJECT_NAME}
    CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
-#  DEPENDS system_lib
+   DEPENDS PCL
 )
 
 ###########
@@ -156,6 +156,7 @@ target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(visualize_pwr src/visualize_pwr.cpp)
+add_executable(filter_red_clusters_node src/filter_red_clusters_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -166,9 +167,11 @@ add_executable(visualize_pwr src/visualize_pwr.cpp)
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 add_dependencies(visualize_pwr ${catkin_EXPORTED_TARGETS})
+add_dependencies(filter_red_clusters_node ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(visualize_pwr ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(filter_red_clusters_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 #############
 ## Install ##
