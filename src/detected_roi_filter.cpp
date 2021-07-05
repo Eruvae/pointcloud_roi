@@ -1,5 +1,4 @@
-#include "pointcloud_roi/filter_detected_roi.h"
-#include <pluginlib/class_list_macros.h>
+#include "pointcloud_roi/detected_roi_filter.h"
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/extract_indices.h>
@@ -14,14 +13,12 @@
 namespace pointcloud_roi
 {
 
-void FilterDetectedRoiNodelet::onInit()
+DetectedRoiFilter::DetectedRoiFilter(ros::NodeHandle &nhp) : is_running(true)
 {
-  processing_thread = std::thread(&FilterDetectedRoiNodelet::processingThread, this);
-
-  ros::NodeHandle &nhp = getPrivateNodeHandle();
+  processing_thread = std::thread(&DetectedRoiFilter::processingThread, this);
 
   dynrec_server.reset(new dynamic_reconfigure::Server<pointcloud_roi::FilterDetectedRoiConfig>(nhp));
-  dynrec_server->setCallback(boost::bind(&FilterDetectedRoiNodelet::reconfigureCallback, this, _1, _2));
+  dynrec_server->setCallback(boost::bind(&DetectedRoiFilter::reconfigureCallback, this, _1, _2));
 
   use_exact_sync = nhp.param<bool>("use_exact_sync", false);
   publish_colored_cloud = nhp.param<bool>("publish_colored_cloud", false);
@@ -34,18 +31,18 @@ void FilterDetectedRoiNodelet::onInit()
   if (use_exact_sync)
   {
     exact_sync.reset(new message_filters::Synchronizer<DetsExactSyncPolicy>(DetsExactSyncPolicy(100), *transform_filter, *det_sub));
-    exact_sync->registerCallback(&FilterDetectedRoiNodelet::detectionCallback, this);
+    exact_sync->registerCallback(&DetectedRoiFilter::detectionCallback, this);
   }
   else
   {
     approx_sync.reset(new message_filters::Synchronizer<DetsApproxSyncPolicy>(DetsApproxSyncPolicy(100), *transform_filter, *det_sub));
-    approx_sync->registerCallback(&FilterDetectedRoiNodelet::detectionCallback, this);
+    approx_sync->registerCallback(&DetectedRoiFilter::detectionCallback, this);
   }
   //message_filters::Cache<DetsExactSyncPolicy::Messages> c(exact_sync->, 1, true);
   pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
 }
 
-FilterDetectedRoiNodelet::~FilterDetectedRoiNodelet()
+DetectedRoiFilter::~DetectedRoiFilter()
 {
   is_running = false;
   cv.notify_one();
@@ -56,7 +53,7 @@ FilterDetectedRoiNodelet::~FilterDetectedRoiNodelet()
   catch (std::system_error&) {}
 }
 
-void FilterDetectedRoiNodelet::processingThread()
+void DetectedRoiFilter::processingThread()
 {
   while (is_running && ros::ok())
   {
@@ -77,7 +74,7 @@ void FilterDetectedRoiNodelet::processingThread()
   }
 }
 
-void FilterDetectedRoiNodelet::detectionCallback(const sensor_msgs::PointCloud2Ptr &pc, const yolact_ros_msgs::DetectionsPtr &dets)
+void DetectedRoiFilter::detectionCallback(const sensor_msgs::PointCloud2Ptr &pc, const yolact_ros_msgs::DetectionsPtr &dets)
 {
   {
     std::lock_guard<std::mutex> lk(m);
@@ -88,7 +85,7 @@ void FilterDetectedRoiNodelet::detectionCallback(const sensor_msgs::PointCloud2P
 }
 
 template <typename PointT>
-void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets)
+void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets)
 {
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud(new pcl::PointCloud<PointT>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
@@ -240,11 +237,9 @@ void FilterDetectedRoiNodelet::processDetections(const sensor_msgs::PointCloud2C
   pc_roi_pub.publish(res);
 }
 
-void FilterDetectedRoiNodelet::reconfigureCallback(pointcloud_roi::FilterDetectedRoiConfig &config, uint32_t level)
+void DetectedRoiFilter::reconfigureCallback(pointcloud_roi::FilterDetectedRoiConfig &config, uint32_t level)
 {
   this->config = config;
 }
 
 } // namespace pointcloud_roi
-
-PLUGINLIB_EXPORT_CLASS(pointcloud_roi::FilterDetectedRoiNodelet, nodelet::Nodelet)

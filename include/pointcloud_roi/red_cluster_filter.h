@@ -1,5 +1,5 @@
-#ifndef FILTER_RED_CLUSTERS_H
-#define FILTER_RED_CLUSTERS_H
+#ifndef RED_CLUSTER_FILTER_H
+#define RED_CLUSTER_FILTER_H
 
 #include <nodelet/nodelet.h>
 #include <ros/ros.h>
@@ -16,10 +16,12 @@
 namespace pointcloud_roi
 {
 
-class FilterRedClustersNodelet : public nodelet::Nodelet
+class RedClusterFilter
 {
 public:
-  FilterRedClustersNodelet() : Nodelet() {}
+  RedClusterFilter(ros::NodeHandle &nhp);
+
+  void filter(const sensor_msgs::PointCloud2ConstPtr &pc);
 
 private:
   std::string target_frame;
@@ -30,13 +32,9 @@ private:
 
   ros::Publisher pc_roi_pub;
 
-  virtual void onInit();
-
   pcl::IndicesConstPtr filterRed(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input, pcl::PointCloud<pcl::PointXYZRGB>::Ptr output = nullptr);
-  void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &pc);
-
 };
 
 } // namespace pointcloud_roi
 
-#endif // FILTER_RED_CLUSTERS_H
+#endif // RED_CLUSTER_FILTER_H

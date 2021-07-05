@@ -1,5 +1,5 @@
 #include <ros/ros.h>
-#include "pointcloud_roi/red_cluster_filter.h"
+#include "pointcloud_roi/detected_roi_filter.h"
 
 int main(int argc, char **argv)
 {
@@ -7,7 +7,7 @@ int main(int argc, char **argv)
 
   ros::NodeHandle nhp("~");
 
-  pointcloud_roi::RedClusterFilter filter(nhp);
+  pointcloud_roi::DetectedRoiFilter filter(nhp);
 
   ros::spin();
 }

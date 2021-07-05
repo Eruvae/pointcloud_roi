@@ -1,5 +1,4 @@
-#include "pointcloud_roi/filter_red_clusters.h"
-#include <pluginlib/class_list_macros.h>
+#include "pointcloud_roi/red_cluster_filter.h"
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/extract_indices.h>
@@ -13,20 +12,18 @@
 namespace pointcloud_roi
 {
 
-void FilterRedClustersNodelet::onInit()
+RedClusterFilter::RedClusterFilter(ros::NodeHandle &nhp)
 {
-  ros::NodeHandle &nhp = getPrivateNodeHandle();
-
   target_frame = nhp.param<std::string>("map_frame", "world");
   tf_buffer.reset(new tf2_ros::Buffer(ros::Duration(tf2::BufferCore::DEFAULT_CACHE_TIME)));
   tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, nhp));
   pc_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(nhp, "input", 1));
   transform_filter.reset(new tf2_ros::MessageFilter<sensor_msgs::PointCloud2>(*pc_sub, *tf_buffer, target_frame, 1000, nhp));
-  transform_filter->registerCallback(&FilterRedClustersNodelet::pointcloudCallback, this);
+  transform_filter->registerCallback(&RedClusterFilter::filter, this);
   pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
 }
 
-pcl::IndicesConstPtr FilterRedClustersNodelet::filterRed(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input, pcl::PointCloud<pcl::PointXYZRGB>::Ptr output)
+pcl::IndicesConstPtr RedClusterFilter::filterRed(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input, pcl::PointCloud<pcl::PointXYZRGB>::Ptr output)
 {
   if (output == nullptr)
     output.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -50,7 +47,7 @@ pcl::IndicesConstPtr FilterRedClustersNodelet::filterRed(pcl::PointCloud<pcl::Po
   return condrem.getRemovedIndices();
 }
 
-void FilterRedClustersNodelet::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &pc)
+void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
 {
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
@@ -123,5 +120,3 @@ void FilterRedClustersNodelet::pointcloudCallback(const sensor_msgs::PointCloud2
 }
 
 } // namespace pointcloud_roi
-
-PLUGINLIB_EXPORT_CLASS(pointcloud_roi::FilterRedClustersNodelet, nodelet::Nodelet)

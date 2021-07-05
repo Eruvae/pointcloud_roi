@@ -1,7 +1,6 @@
-#ifndef FILTER_DETECTED_ROI_H
-#define FILTER_DETECTED_ROI_H
+#ifndef DETECTED_ROI_FILTER_H
+#define DETECTED_ROI_FILTER_H
 
-#include <nodelet/nodelet.h>
 #include <ros/ros.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/cache.h>
@@ -26,11 +25,11 @@
 namespace pointcloud_roi
 {
 
-class FilterDetectedRoiNodelet : public nodelet::Nodelet
+class DetectedRoiFilter
 {
 public:
-  FilterDetectedRoiNodelet() : Nodelet(), is_running(true) {}
-  virtual ~FilterDetectedRoiNodelet();
+  DetectedRoiFilter(ros::NodeHandle &nhp);
+  virtual ~DetectedRoiFilter();
 
 private:
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, yolact_ros_msgs::Detections> DetsApproxSyncPolicy;
@@ -60,8 +59,6 @@ private:
   std::thread processing_thread;
   std::atomic_bool is_running;
 
-  virtual void onInit();
-
   void processingThread();
 
   void detectionCallback(const sensor_msgs::PointCloud2Ptr &pc, const yolact_ros_msgs::DetectionsPtr &dets);
@@ -74,4 +71,4 @@ private:
 
 } // namespace pointcloud_roi
 
-#endif // FILTER_DETECTED_ROI_H
+#endif // DETECTED_ROI_FILTER_H
