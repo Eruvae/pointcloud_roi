@@ -19,6 +19,8 @@ RedClusterFilter::RedClusterFilter(ros::NodeHandle &nhp)
   tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, nhp));
   pc_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(nhp, "input", 1));
   transform_filter.reset(new tf2_ros::MessageFilter<sensor_msgs::PointCloud2>(*pc_sub, *tf_buffer, target_frame, 1000, nhp));
+  robot_body_filter.reset(new RobotBodyFilter());
+  ROS_WARN_STREAM("Robot model frame: " << robot_body_filter->getModelFrame());
   transform_filter->registerCallback(&RedClusterFilter::filter, this);
   pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
 }
@@ -52,9 +54,27 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
 
+  geometry_msgs::TransformStamped pcFrameTf;
+  try
+  {
+    pcFrameTf = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, pc->header.stamp);
+  }
+  catch (const tf2::TransformException &e)
+  {
+    ROS_ERROR_STREAM("Couldn't find transform to map frame: " << e.what());
+    return;
+  }
+  ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
+  auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
+
+  pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen);
+
+  pcl::IndicesPtr nonRobotIndices = robot_body_filter->getIndices(*pcl_cloud);
+
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud_ds(new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::VoxelGrid<pcl::PointXYZRGB> vg;
   vg.setInputCloud (pcl_cloud);
+  vg.setIndices(nonRobotIndices);
   vg.setLeafSize (0.01f, 0.01f, 0.01f);
   //vg.setSaveLeafLayout(true);
   vg.filter (*pcl_cloud_ds);
@@ -90,21 +110,6 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
   {
     ROS_INFO_STREAM("Cluster " << i << ": " << clusterIndices[i].indices.size());
   }*/
-
-  geometry_msgs::TransformStamped pcFrameTf;
-  try
-  {
-    pcFrameTf = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, pc->header.stamp);
-  }
-  catch (const tf2::TransformException &e)
-  {
-    ROS_ERROR_STREAM("Couldn't find transform to map frame: " << e.what());
-    return;
-  }
-  ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
-  auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
-
-  pcl::transformPointCloud(*pcl_cloud_ds, *pcl_cloud_ds, tfEigen);
 
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);

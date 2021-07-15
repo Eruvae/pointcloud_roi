@@ -10,6 +10,7 @@ set (CATKIN_DEPENDENCIES
     tf2_sensor_msgs
     tf2_eigen
     pcl_ros
+    moveit_ros_perception
     sensor_msgs
     geometry_msgs
     message_filters

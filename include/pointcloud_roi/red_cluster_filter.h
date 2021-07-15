@@ -12,6 +12,7 @@
 #include <pcl/point_types.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <string>
+#include "pointcloud_roi/robot_body_filter.h"
 
 namespace pointcloud_roi
 {
@@ -29,6 +30,7 @@ private:
   std::unique_ptr<tf2_ros::TransformListener> tf_listener;
   std::unique_ptr<message_filters::Subscriber<sensor_msgs::PointCloud2>> pc_sub;
   std::unique_ptr<tf2_ros::MessageFilter<sensor_msgs::PointCloud2>> transform_filter;
+  std::unique_ptr<RobotBodyFilter> robot_body_filter;
 
   ros::Publisher pc_roi_pub;
 

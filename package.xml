@@ -59,6 +59,7 @@
   <depend>tf2_sensor_msgs</depend>
   <depend>tf2_eigen</depend>
   <depend>pcl_ros</depend>
+  <depend>moveit_ros_perception</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>message_filters</depend>
