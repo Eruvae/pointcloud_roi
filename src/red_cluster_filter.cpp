@@ -103,10 +103,6 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
     ROS_INFO_STREAM("Cluster " << i << ": " << clusterIndices[i].indices.size());
   }*/
 
-  const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<pcl::PointXYZRGB>(pcl_cloud_ds, redIndicesRo);
-  roi_only_pub.publish(*inlier_cloud);
-  nonroi_only_pub.publish(*outlier_cloud);
-
   geometry_msgs::TransformStamped pcFrameTf;
   try
   {
@@ -118,9 +114,19 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
     return;
   }
   ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
-  auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
 
-  pcl::transformPointCloud(*pcl_cloud_ds, *pcl_cloud_ds, tfEigen);
+  static Eigen::Isometry3d lastTfEigen;
+  Eigen::Isometry3d tfEigen = tf2::transformToEigen(pcFrameTf);
+
+  if (tfEigen.isApprox(lastTfEigen, 1e-2)) // Publish separate clouds only if not moved
+  {
+    const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<pcl::PointXYZRGB>(pcl_cloud_ds, redIndicesRo);
+    roi_only_pub.publish(*inlier_cloud);
+    nonroi_only_pub.publish(*outlier_cloud);
+  }
+  lastTfEigen = tfEigen;
+
+  pcl::transformPointCloud(*pcl_cloud_ds, *pcl_cloud_ds, tfEigen.matrix());
 
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
