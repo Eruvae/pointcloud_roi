@@ -61,47 +61,7 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
 
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud_ds = pcl_cloud; /*(new pcl::PointCloud<pcl::PointXYZRGB>);
-  pcl_cloud_ds->header = pcl_cloud->header;
-  pcl::VoxelGrid<pcl::PointXYZRGB> vg;
-  vg.setInputCloud (pcl_cloud);
-  vg.setLeafSize (0.01f, 0.01f, 0.01f);
-  //vg.setSaveLeafLayout(true);
-  vg.filter (*pcl_cloud_ds);
-  ROS_INFO_STREAM("PointCloud before: " << pcl_cloud->points.size()  << ", " << pcl_cloud_ds->points.size());*/
-
-  //pcl::PointCloud<pcl::PointXYZRGB>::Ptr not_red_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-  pcl::IndicesConstPtr redIndices = filterRed(pcl_cloud_ds);
-  pcl::IndicesPtr redIndicesRo(new std::vector<int>);
-
-  ROS_INFO_STREAM("Red indices: " << redIndices->size());
-
-  pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> ro;
-  ro.setInputCloud(pcl_cloud_ds);
-  ro.setIndices(redIndices);
-  ro.setMeanK(5);
-  ro.setStddevMulThresh(0.01);
-  ro.filter(*redIndicesRo);
-
-  // Creating the KdTree object for the search method of the extraction
-  /*pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
-  tree->setInputCloud (pcl_cloud_ds);
-
-  std::vector<pcl::PointIndices> clusterIndices;
-  pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-  ec.setClusterTolerance (0.02); // 2cm
-  ec.setMinClusterSize (10);
-  ec.setMaxClusterSize (2000);
-  ec.setSearchMethod (tree);
-  ec.setInputCloud (pcl_cloud_ds);
-  ec.setIndices(redIndices);
-  ec.extract (clusterIndices);
-
-  ROS_INFO_STREAM("Clusters: " << clusterIndices.size());
-  for (size_t i = 0; i < clusterIndices.size(); i++)
-  {
-    ROS_INFO_STREAM("Cluster " << i << ": " << clusterIndices[i].indices.size());
-  }*/
+  pcl::IndicesConstPtr redIndices = filterRed(pcl_cloud);
 
   geometry_msgs::TransformStamped pcFrameTf;
   try
@@ -120,22 +80,33 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
 
   if (tfEigen.isApprox(lastTfEigen, 1e-2)) // Publish separate clouds only if not moved
   {
-    const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<pcl::PointXYZRGB>(pcl_cloud_ds, redIndicesRo);
+    const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<pcl::PointXYZRGB>(pcl_cloud, redIndices);
     roi_only_pub.publish(*inlier_cloud);
-    nonroi_only_pub.publish(*outlier_cloud);
+    //nonroi_only_pub.publish(*outlier_cloud);
   }
   lastTfEigen = tfEigen;
 
-  pcl::transformPointCloud(*pcl_cloud_ds, *pcl_cloud_ds, tfEigen.matrix());
+  pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen.matrix());
+
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud_ds(new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::VoxelGrid<pcl::PointXYZRGB> vg;
+  vg.setInputCloud (pcl_cloud);
+  vg.setLeafSize (0.01f, 0.01f, 0.01f);
+  //vg.setSaveLeafLayout(true);
+  vg.filter (*pcl_cloud_ds);
+
+  redIndices = filterRed(pcl_cloud_ds);
+  pcl::IndicesPtr redIndicesRo(new std::vector<int>);
+
+  pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> ro;
+  ro.setInputCloud(pcl_cloud_ds);
+  ro.setIndices(redIndices);
+  ro.filter(*redIndicesRo);
 
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
   res.cloud.header.frame_id = target_frame;
   res.cloud.header.stamp = pc->header.stamp;
-  /*for (const pcl::PointIndices &ind : clusterIndices)
-  {
-    res.roi_indices.insert(res.roi_indices.end(), ind.indices.begin(), ind.indices.end());
-  }*/
   res.transform = pcFrameTf.transform;
   res.roi_indices.assign(redIndicesRo->begin(), redIndicesRo->end());
   pc_roi_pub.publish(res);
