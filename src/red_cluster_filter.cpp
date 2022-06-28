@@ -10,6 +10,7 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl_ros/transforms.h>
 #include <pointcloud_roi_msgs/PointcloudWithRoi.h>
+#include <pcl/filters/radius_outlier_removal.h>
 
 namespace pointcloud_roi
 {
@@ -29,6 +30,8 @@ RedClusterFilter::RedClusterFilter(ros::NodeHandle &nhp)
   pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
   roi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("roi_cloud", 1);
   nonroi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("nonroi_cloud", 1);
+  nhp.param("radius_filter/radius_search", radius_search, 0.02);
+  nhp.param("radius_filter/min_neighbours", min_neighbours, 20);
 
 }
 
@@ -63,7 +66,7 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
 
   pcl::IndicesConstPtr redIndices = filterRed(pcl_cloud);
 
-  geometry_msgs::TransformStamped pcFrameTf;
+  geometry_msgs::TransformStamped pcFrameTf, pcFrameTfNow;
   try
   {
     pcFrameTf = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, pc->header.stamp);
@@ -73,16 +76,59 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
     ROS_ERROR_STREAM("Couldn't find transform to map frame: " << e.what());
     return;
   }
+  try
+  {
+    ros::Time now = ros::Time::now();
+    pcFrameTfNow = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, now, ros::Duration(3.0));
+  }
+  catch(const tf2::TransformException &e)
+  {
+    ROS_ERROR_STREAM("Couldn't find transform NOW to map frame: " << e.what());
+    return;
+  }
+  
   ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
 
   static Eigen::Isometry3d lastTfEigen;
   Eigen::Isometry3d tfEigen = tf2::transformToEigen(pcFrameTf);
+  Eigen::Isometry3d tfEigenNow = tf2::transformToEigen(pcFrameTfNow);
+  
 
-  if (tfEigen.isApprox(lastTfEigen, 1e-2)) // Publish separate clouds only if not moved
+  if (tfEigenNow.isApprox(tfEigen, 1e-2) && tfEigen.isApprox(lastTfEigen, 1e-2)) // Publish separate clouds only if not moved
   {
     const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<pcl::PointXYZRGB>(pcl_cloud, redIndices);
-    roi_only_pub.publish(*inlier_cloud);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_pcl_nan_rem(new pcl::PointCloud<pcl::PointXYZRGB> );
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_pcl_filtered(new pcl::PointCloud<pcl::PointXYZRGB> );
+    if(inlier_cloud->points.size() < 10)
+    {
+      ROS_WARN_THROTTLE(60, "Too few points, hence not processing further");
+      return;
+    }
+    try
+    {
+      std::vector<int> indices;
+      pcl::removeNaNFromPointCloud(*inlier_cloud, *pc_pcl_nan_rem, indices);
+      pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> outrem;
+      // build the filter
+      outrem.setInputCloud(pc_pcl_nan_rem);
+      outrem.setRadiusSearch(radius_search);
+      outrem.setMinNeighborsInRadius(min_neighbours);
+      outrem.setKeepOrganized(true);
+      // apply filter
+      outrem.filter (*pc_pcl_filtered);
+    }
+    catch(...)
+    {
+      ROS_ERROR_STREAM("Radius Outlier Removal Filter Error: \n");
+      return;
+    }
+    roi_only_pub.publish(*pc_pcl_filtered);
+
     //nonroi_only_pub.publish(*outlier_cloud);
+  }
+  else
+  {
+    ROS_WARN_THROTTLE(30, "TFEigen Now and TF Eigen for PC stamp are different");
   }
   lastTfEigen = tfEigen;
 
@@ -103,8 +149,10 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
   ro.setIndices(redIndices);
   ro.filter(*redIndicesRo);
 
+  
+
   pointcloud_roi_msgs::PointcloudWithRoi res;
-  pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
+  pcl::toROSMsg(*pcl_cloud, res.cloud);
   res.cloud.header.frame_id = target_frame;
   res.cloud.header.stamp = pc->header.stamp;
   res.transform = pcFrameTf.transform;

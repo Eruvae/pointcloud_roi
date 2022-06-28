@@ -33,6 +33,8 @@ private:
   ros::Publisher pc_roi_pub;
   ros::Publisher roi_only_pub;
   ros::Publisher nonroi_only_pub;
+  double radius_search;
+  int min_neighbours;
 
   pcl::IndicesConstPtr filterRed(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input, pcl::PointCloud<pcl::PointXYZRGB>::Ptr output = nullptr);
 };
