@@ -9,6 +9,8 @@
 #include <pcl_ros/transforms.h>
 #include <pointcloud_roi_msgs/PointcloudWithRoi.h>
 #include <yolact_ros_msgs/mask_utils.h>
+#include "pointcloud_roi/utils.h"
+#include <pcl_ros/point_cloud.h>
 
 namespace pointcloud_roi
 {
@@ -40,6 +42,16 @@ DetectedRoiFilter::DetectedRoiFilter(ros::NodeHandle &nhp) : is_running(true)
   }
   //message_filters::Cache<DetsExactSyncPolicy::Messages> c(exact_sync->, 1, true);
   pc_roi_pub = nhp.advertise<pointcloud_roi_msgs::PointcloudWithRoi>("results", 1);
+  if (publish_colored_cloud)
+  {
+    roi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("roi_cloud", 1);
+    nonroi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("nonroi_cloud", 1);
+  }
+  else
+  {
+    roi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("roi_cloud", 1);
+    nonroi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("nonroi_cloud", 1);
+  }
 }
 
 DetectedRoiFilter::~DetectedRoiFilter()
@@ -227,7 +239,17 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
       roiRegion = tmp;
     }
   }
+  static Eigen::Isometry3d lastTfEigen;
+  Eigen::Isometry3d tfEigen_new = tf2::transformToEigen(pcFrameTf);
 
+  if (tfEigen_new.isApprox(lastTfEigen, 1e-2)) // Publish separate clouds only if not moved
+  {
+    //pcl::IndicesConstPtr redIndices = roiRegion;
+    const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<PointT>(pcl_cloud_ds, roiRegion);
+    roi_only_pub.publish(*inlier_cloud);
+    //nonroi_only_pub.publish(*outlier_cloud);
+  }
+  lastTfEigen = tfEigen_new;
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
   res.cloud.header.frame_id = target_frame;
@@ -235,6 +257,7 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
   res.transform = pcFrameTf.transform;
   res.roi_indices = std::move(roiRegion->indices);
   pc_roi_pub.publish(res);
+
 }
 
 void DetectedRoiFilter::reconfigureCallback(pointcloud_roi::FilterDetectedRoiConfig &config, uint32_t level)

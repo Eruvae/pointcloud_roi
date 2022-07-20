@@ -51,6 +51,8 @@ private:
   std::unique_ptr<dynamic_reconfigure::Server<pointcloud_roi::FilterDetectedRoiConfig>> dynrec_server;
 
   ros::Publisher pc_roi_pub;
+  ros::Publisher roi_only_pub;
+  ros::Publisher nonroi_only_pub;
 
   sensor_msgs::PointCloud2Ptr synced_pc;
   yolact_ros_msgs::DetectionsPtr synced_dets;
