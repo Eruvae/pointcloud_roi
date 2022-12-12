@@ -37,6 +37,7 @@ private:
 
   bool use_exact_sync;
   bool publish_colored_cloud;
+  bool transform_pointcloud;
   std::string target_frame;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener;
@@ -53,6 +54,7 @@ private:
   ros::Publisher pc_roi_pub;
   ros::Publisher roi_only_pub;
   ros::Publisher nonroi_only_pub;
+  ros::Publisher full_pub;
 
   sensor_msgs::PointCloud2Ptr synced_pc;
   yolact_ros_msgs::DetectionsPtr synced_dets;

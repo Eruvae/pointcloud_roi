@@ -24,6 +24,7 @@ DetectedRoiFilter::DetectedRoiFilter(ros::NodeHandle &nhp) : is_running(true)
 
   use_exact_sync = nhp.param<bool>("use_exact_sync", false);
   publish_colored_cloud = nhp.param<bool>("publish_colored_cloud", false);
+  transform_pointcloud = nhp.param<bool>("transform_pointcloud", true);
   target_frame = nhp.param<std::string>("map_frame", "world");
   tf_buffer.reset(new tf2_ros::Buffer(ros::Duration(tf2::BufferCore::DEFAULT_CACHE_TIME)));
   tf_listener.reset(new tf2_ros::TransformListener(*tf_buffer, nhp));
@@ -46,11 +47,13 @@ DetectedRoiFilter::DetectedRoiFilter(ros::NodeHandle &nhp) : is_running(true)
   {
     roi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("roi_cloud", 1);
     nonroi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("nonroi_cloud", 1);
+    full_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZRGB>>("full_cloud", 1);
   }
   else
   {
     roi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("roi_cloud", 1);
     nonroi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("nonroi_cloud", 1);
+    full_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("full_cloud", 1);
   }
 }
 
@@ -115,7 +118,10 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
   //ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
   auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
 
-  pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen);
+  if (transform_pointcloud)
+  {
+    pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen);
+  }
 
   /*ros::Time sor_start = ros::Time::now();
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud_sor(new pcl::PointCloud<PointT>);
@@ -227,16 +233,19 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
     if (allIndices.size() == 0)
     {
       ROS_INFO("No ROI found");
-      return;
+      roiRegion.reset(new pcl::PointIndices);
     }
-    roiRegion = allIndices[0];
-    for (size_t i = 1; i < allIndices.size(); i++)
+    else
     {
-      pcl::PointIndicesPtr tmp(new pcl::PointIndices);
-      tmp->indices.resize(roiRegion->indices.size() + allIndices[i]->indices.size());
-      auto it = std::set_union(roiRegion->indices.begin(), roiRegion->indices.end(), allIndices[i]->indices.begin(), allIndices[i]->indices.end(), tmp->indices.begin());
-      tmp->indices.resize(it - tmp->indices.begin());
-      roiRegion = tmp;
+      roiRegion = allIndices[0];
+      for (size_t i = 1; i < allIndices.size(); i++)
+      {
+        pcl::PointIndicesPtr tmp(new pcl::PointIndices);
+        tmp->indices.resize(roiRegion->indices.size() + allIndices[i]->indices.size());
+        auto it = std::set_union(roiRegion->indices.begin(), roiRegion->indices.end(), allIndices[i]->indices.begin(), allIndices[i]->indices.end(), tmp->indices.begin());
+        tmp->indices.resize(it - tmp->indices.begin());
+        roiRegion = tmp;
+      }
     }
   }
   static Eigen::Isometry3d lastTfEigen;
@@ -248,13 +257,24 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
     const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<PointT>(pcl_cloud_ds, roiRegion);
     roi_only_pub.publish(*inlier_cloud);
     //nonroi_only_pub.publish(*outlier_cloud);
+    full_pub.publish(*pcl_cloud_ds);
   }
   lastTfEigen = tfEigen_new;
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
-  res.cloud.header.frame_id = target_frame;
+
+  if (transform_pointcloud)
+  {
+    res.cloud.header.frame_id = target_frame;
+    res.transform = pcFrameTf.transform;
+  }
+  else
+  {
+    res.cloud.header.frame_id = pc->header.frame_id;
+    res.transform.rotation.w = 1;
+  }
+
   res.cloud.header.stamp = pc->header.stamp;
-  res.transform = pcFrameTf.transform;
   res.roi_indices = std::move(roiRegion->indices);
   pc_roi_pub.publish(res);
 
