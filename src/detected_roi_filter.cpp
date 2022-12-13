@@ -121,6 +121,7 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
   if (transform_pointcloud)
   {
     pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen);
+    pcl_cloud->header.frame_id = target_frame;
   }
 
   /*ros::Time sor_start = ros::Time::now();
@@ -131,6 +132,7 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
   ROS_INFO_STREAM("Time for SOR: " << ros::Time::now() - sor_start);*/
 
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud_ds(new pcl::PointCloud<PointT>);
+  pcl_cloud_ds->header = pcl_cloud->header;
   typename pcl::VoxelGrid<PointT> vg;
   vg.setInputCloud (pcl_cloud);
   vg.setMinimumPointsNumberPerVoxel(config.min_points_per_voxel);
