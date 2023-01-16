@@ -55,6 +55,10 @@ DetectedRoiFilter::DetectedRoiFilter(ros::NodeHandle &nhp) : is_running(true)
     nonroi_only_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("nonroi_cloud", 1);
     full_pub = nhp.advertise<pcl::PointCloud<pcl::PointXYZ>>("full_cloud", 1);
   }
+
+
+  sub_joint_state_ = nh_.subscribe("/joint_states", 1, &DetectedRoiFilter::registerJointState, this);
+  last_robot_moved_time_ = ros::Time::now();
 }
 
 DetectedRoiFilter::~DetectedRoiFilter()
@@ -99,6 +103,22 @@ void DetectedRoiFilter::detectionCallback(const sensor_msgs::PointCloud2Ptr &pc,
   cv.notify_one();
 }
 
+void DetectedRoiFilter::registerJointState(const sensor_msgs::JointState& joint_state)
+{
+  if((joint_state.header.stamp - joint_state_.header.stamp).toSec() < 0.1)
+    return;
+  if(joint_state_recd_) 
+  {
+    prev_joint_state_ = joint_state_;
+  }
+  else
+  {
+    prev_joint_state_ = joint_state;
+    joint_state_recd_ = true;
+  }
+  joint_state_ = joint_state;
+}
+
 template <typename PointT>
 void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets)
 {
@@ -116,6 +136,19 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
     return;
   }
   //ROS_INFO_STREAM("Transform for time " << pc->header.stamp << " successful");
+
+  /*geometry_msgs::TransformStamped pcFrameTfNow;
+  try
+  {
+    ros::Time now = ros::Time::now();
+    pcFrameTfNow = tf_buffer->lookupTransform(target_frame, pc->header.frame_id, now, ros::Duration(3.0));
+  }
+  catch(const tf2::TransformException &e)
+  {
+    ROS_ERROR_STREAM("Couldn't find transform NOW to map frame: " << e.what());
+    return;
+  } */
+  
   auto tfEigen = tf2::transformToEigen(pcFrameTf).matrix();
 
   if (transform_pointcloud)
@@ -250,16 +283,42 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
       }
     }
   }
+  
   static Eigen::Isometry3d lastTfEigen;
   Eigen::Isometry3d tfEigen_new = tf2::transformToEigen(pcFrameTf);
+  //Eigen::Isometry3d tfEigenNow = tf2::transformToEigen(pcFrameTfNow);
 
-  if (tfEigen_new.isApprox(lastTfEigen, 1e-2)) // Publish separate clouds only if not moved
+  double sq_sum = 0; 
+  for(size_t i = 0; i < joint_state_.position.size(); ++i)
+  {
+      sq_sum += (joint_state_.position[i] - prev_joint_state_.position[i] )*(joint_state_.position[i] - prev_joint_state_.position[i]);
+  }
+  double dist_norm = sqrt(sq_sum);
+
+  if (tfEigen_new.isApprox(lastTfEigen, 1e-2) && (ros::Time::now()- last_robot_moved_time_).toSec() > 0.1) // Publish separate clouds only if not moved
   {
     //pcl::IndicesConstPtr redIndices = roiRegion;
     const auto [inlier_cloud, outlier_cloud] = separateCloudByIndices<PointT>(pcl_cloud_ds, roiRegion);
     roi_only_pub.publish(*inlier_cloud);
     //nonroi_only_pub.publish(*outlier_cloud);
     full_pub.publish(*pcl_cloud_ds);
+  }
+  else
+  {
+    if(tfEigen_new.isApprox(lastTfEigen, 1e-2) == false)
+    {
+      last_robot_moved_time_ = ros::Time::now();
+      ROS_WARN_THROTTLE(20, "tfEigen and lastTfEigen are not approx equal");
+    }
+    // if(tfEigen_new.isApprox(tfEigenNow, 1e-2) == false)
+    // {
+    //   ROS_WARN_THROTTLE(20, "tfEigen and tfEigenNow are not approx equal");
+    // }
+    if(dist_norm > 0.05)
+    {
+      last_robot_moved_time_ = ros::Time::now();
+      ROS_WARN_THROTTLE(20, "joint distance norm is greater than 0.05");
+    }
   }
   lastTfEigen = tfEigen_new;
   pointcloud_roi_msgs::PointcloudWithRoi res;

@@ -21,6 +21,7 @@
 #include <condition_variable>
 #include <dynamic_reconfigure/server.h>
 #include <pointcloud_roi_msgs/FilterDetectedRoiConfig.h>
+#include <sensor_msgs/JointState.h>
 
 namespace pointcloud_roi
 {
@@ -32,6 +33,7 @@ public:
   virtual ~DetectedRoiFilter();
 
 private:
+  ros::NodeHandle nh_;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, yolact_ros_msgs::Detections> DetsApproxSyncPolicy;
   typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, yolact_ros_msgs::Detections> DetsExactSyncPolicy;
 
@@ -56,6 +58,11 @@ private:
   ros::Publisher nonroi_only_pub;
   ros::Publisher full_pub;
 
+  ros::Subscriber sub_joint_state_;
+  sensor_msgs::JointState joint_state_, prev_joint_state_;
+  bool joint_state_recd_ = false;  
+  ros::Time last_robot_moved_time_;
+
   sensor_msgs::PointCloud2Ptr synced_pc;
   yolact_ros_msgs::DetectionsPtr synced_dets;
   std::mutex m;
@@ -71,6 +78,8 @@ private:
   void processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets);
 
   void reconfigureCallback(pointcloud_roi::FilterDetectedRoiConfig &config, uint32_t level);
+
+  void registerJointState(const sensor_msgs::JointState& joint_state);
 };
 
 } // namespace pointcloud_roi
