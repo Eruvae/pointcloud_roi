@@ -16,6 +16,7 @@ namespace pointcloud_roi
 
 RedClusterFilter::RedClusterFilter(ros::NodeHandle &nhp)
 {
+  transform_pointcloud = nhp.param<bool>("transform_pointcloud", true);
   target_frame = nhp.param<std::string>("map_frame", "world");
   //bool transform_to_map_frame = nhp.param<bool>("publish_separate_clouds", false);
   //bool publish_combined_cloud = nhp.param<bool>("publish_combined_cloud", true);
@@ -86,7 +87,11 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
   }
   lastTfEigen = tfEigen;
 
-  pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen.matrix());
+  if (transform_pointcloud)
+  {
+    pcl::transformPointCloud(*pcl_cloud, *pcl_cloud, tfEigen.matrix());
+    pcl_cloud->header.frame_id = target_frame;
+  }
 
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pcl_cloud_ds(new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::VoxelGrid<pcl::PointXYZRGB> vg;
@@ -105,10 +110,19 @@ void RedClusterFilter::filter(const sensor_msgs::PointCloud2ConstPtr &pc)
 
   pointcloud_roi_msgs::PointcloudWithRoi res;
   pcl::toROSMsg(*pcl_cloud_ds, res.cloud);
-  res.cloud.header.frame_id = target_frame;
   res.cloud.header.stamp = pc->header.stamp;
-  res.transform = pcFrameTf.transform;
   res.roi_indices.assign(redIndicesRo->begin(), redIndicesRo->end());
+  if (transform_pointcloud)
+  {
+    res.cloud.header.frame_id = target_frame;
+    res.transform = pcFrameTf.transform;
+  }
+  else
+  {
+    res.cloud.header.frame_id = pc->header.frame_id;
+    res.transform.rotation.w = 1;
+  }
+
   pc_roi_pub.publish(res);
 }
 

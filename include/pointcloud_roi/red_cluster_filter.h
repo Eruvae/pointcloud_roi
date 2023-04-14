@@ -24,6 +24,7 @@ public:
   void filter(const sensor_msgs::PointCloud2ConstPtr &pc);
 
 private:
+  bool transform_pointcloud;
   std::string target_frame;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener;
