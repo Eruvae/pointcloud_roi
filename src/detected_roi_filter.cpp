@@ -122,6 +122,12 @@ void DetectedRoiFilter::registerJointState(const sensor_msgs::JointState& joint_
 template <typename PointT>
 void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr &pc, const yolact_ros_msgs::DetectionsConstPtr &dets)
 {
+  if (pc->height < 2)
+  {
+    ROS_ERROR_STREAM("Incoming point cloud is not organized; cannot process detections");
+    return;
+  }
+
   typename pcl::PointCloud<PointT>::Ptr pcl_cloud(new pcl::PointCloud<PointT>);
   pcl::fromROSMsg(*pc, *pcl_cloud);
 
@@ -190,7 +196,7 @@ void DetectedRoiFilter::processDetections(const sensor_msgs::PointCloud2ConstPtr
     std::set<int> inds_set;
     for (const yolact_ros_msgs::Detection &det : dets->detections)
     {
-      ROS_INFO_STREAM("Detection is processed");
+      //ROS_INFO_STREAM("Detection is processed");
       for (int y = det.box.y1; y < det.box.y2; y++)
       {
         for (int x = det.box.x1; x < det.box.x2; x++)
